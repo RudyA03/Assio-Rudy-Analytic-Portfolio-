@@ -1,0 +1,283 @@
+bank <- read.csv("~/Downloads/bankloan.csv")
+summary(bank) 
+library(dplyr)
+
+#remove ID
+
+bank <- subset(bank, select = -c(ID))
+
+#### EDA ####
+summary(bank)
+
+#Boxplots
+par(cex.axis = 0.8)
+boxplot(bank$Age, bank$Experience, bank$Income, bank$Family, bank$Securities.Account,
+        names = c("Age", "Experience", "Income", "Family", "SA"),
+        ylab = "Values")
+par(cex.axis = 0.8)
+boxplot(bank$CCAvg, bank$Education, bank$CreditCard, bank$CD.Account, bank$Online,
+        names = c("CCAvg", "Education", "Credit Card", "CDAcc.", "Online"),
+        ylab = "Values")
+
+boxplot(bank$Mortgage,
+        names = "Mortgage",
+        ylab = "Values")
+
+#correlation text between numerics vs cateogircal to price
+correlation_matrix <- cor(bank[, sapply(bank, is.numeric)], use = "complete.obs")
+personal_loan_cor <- correlation_matrix["Personal.Loan", ]
+print(personal_loan_cor)
+
+#modeltraining
+train_indices <- sample(1:nrow(bank), 0.8 * nrow(bank))
+train <- bank[train_indices, ]
+test <- bank[-train_indices, ]
+
+#### LOGISTIC REGRESSION ####
+
+#basemodel
+model1 <- glm(Personal.Loan~ ., data = train)
+summary(model1)
+print(model1)
+BIC(model1)
+
+#backward elim
+Opt_model <- step(model1, direction = "backward")
+summary(Opt_model)
+
+#BIC
+BIC(Opt_model)
+
+#AUC/ROC
+pred_glm0_train<- predict(Opt_model, type="response")
+library(ROCR)
+pred <- prediction(pred_glm0_train, train$Personal.Loan)
+perf <- performance(pred, "tpr", "fpr")
+plot(perf, colorize = TRUE, main = "In Sample ROC Curve")
+unlist(slot(performance(pred, "auc"), "y.values"))
+#outofsampleAUC
+pred_glm0_test <- predict(Opt_model, newdata = test, type = "response")
+library(ROCR)
+pred_test <- prediction(pred_glm0_test, test$Personal.Loan)
+perf_test <- performance(pred_test, "tpr", "fpr")
+plot(perf_test, colorize = TRUE, main = "Out of Sample ROC Curve")
+auc_test <- unlist(slot(performance(pred_test, "auc"), "y.values"))
+auc_test
+
+#missclass table
+pred_resp <- predict(Opt_model, train, type="response")
+matrix <- table(train$Personal.Loan, (pred_resp > 0.2) * 1, dnn=c("Actual","Predicted"))
+print(matrix)
+#Calculate rate
+fp <- matrix[2, 1]
+fn <- matrix[1, 2] 
+total <- sum(matrix)
+misclassification_rate <- (fp + fn) / total
+print(misclassification_rate)
+#outofsample miss class
+pred_resp <- predict(Opt_model, newdata = test, type = "response")
+table(test$Personal.Loan, (pred_resp > 0.2) * 1, dnn = c("Actual", "Predicted"))
+fp <- matrix[2, 1]
+fn <- matrix[1, 2] 
+total <- sum(matrix)
+misclassification_rate <- (fp + fn) / total
+print(misclassification_rate)
+
+#aysemtric cost
+r <- train$Personal.Loan
+pi <-predict(Opt_model, train, type="response")
+pcut <- 0.5
+cost2 <- function(r, pi, pcut){
+  weight1 <- 5
+  weight0 <- 1
+  c1 <- (r==1)&(pi<pcut)
+  c0 <-(r==0)&(pi>pcut) 
+  return(mean(weight1*c1+weight0*c0))
+}
+print(cost2(r, pi, pcut))
+#outofsamplecost
+r <- test$Personal.Loan
+pi <- predict(Opt_model, newdata = test, type = "response")
+pcut <- 0.5
+cost2 <- function(r, pi, pcut){
+  weight1 <- 5
+  weight0 <- 1
+  c1 <- (r == 1) & (pi < pcut)
+  c0 <- (r == 0) & (pi > pcut)
+  return(mean(weight1 * c1 + weight0 * c0))
+}
+print(cost2(r, pi, pcut))
+
+
+#### DECSION TREE ####
+library(rpart)
+#install.packages("rpart.plot")
+library(rpart.plot)
+
+# Decision Tree Model
+bank$Personal.Loan <- as.factor(bank$Personal.Loan)
+model_tree <- rpart(Personal.Loan ~ ., data = train, method = 'class')
+
+# Plot the decision tree
+rpart.plot(model_tree)
+
+#Tree Puning
+plotcp(model_tree)
+tree1 <- model_tree$cptable[which.min(model_tree$cptable[,"xerror"]), "CP"]
+pruned_tree <- prune(model_tree, cp = tree1)
+rpart.plot(pruned_tree)
+
+#AUC
+# In-sample AUC Calculation for Decision Tree Model
+pred_tree_train <- predict(model_tree, newdata = train, type = "prob")
+positive_prob_train <- pred_tree_train[, 2] 
+library(ROCR)
+pred_train <- prediction(positive_prob_train, train$Personal.Loan)
+perf_train <- performance(pred_train, "tpr", "fpr")
+plot(perf_train, colorize = TRUE, main = "In Sample Tree ROC Cruve")
+auc_train <- unlist(slot(performance(pred_train, "auc"), "y.values"))
+print(auc_train)
+# Out-of-sample AUC Calculation for Decision Tree Model
+pred_tree_test <- predict(model_tree, newdata = test, type = "prob")
+positive_prob_test <- pred_tree_test[, 2]
+pred_test <- prediction(positive_prob_test, test$Personal.Loan)
+perf_test <- performance(pred_test, "tpr", "fpr")
+plot(perf_test, colorize = TRUE, main = "Out of Sample Tree ROC Curve")
+auc_test <- unlist(slot(performance(pred_test, "auc"), "y.values"))
+print(auc_test)
+
+# Misclassification Rate on the Training Data
+pred_resp_tree <- predict(model_tree, newdata = train, type = 'class')
+matrix <- table(train$Personal.Loan, pred_resp_tree)
+print(matrix)
+fp <- matrix[2, 1]
+fn <- matrix[1, 2] 
+total <- sum(matrix)
+misclassification_rate <- (fp + fn) / total
+print(misclassification_rate)
+#outofsample
+pred_resp_tree <- predict(model_tree, newdata = test, type = 'class')
+matrix <- table(test$Personal.Loan, pred_resp_tree)
+print(matrix)
+fp <- matrix[2, 1]
+fn <- matrix[1, 2] 
+total <- sum(matrix)
+misclassification_rate <- (fp + fn) / total
+print(misclassification_rate)
+
+# Asymmetric Cost Calculation
+r <- train$Personal.Loan
+pi <- as.numeric(predict(model_tree, newdata = train, type = "prob")[, 2])
+pcut <- 0.5
+cost2 <- function(r, pi, pcut) {
+  weight1 <- 5
+  weight0 <- 1
+  c1 <- (r == 1) & (pi < pcut)
+  c0 <- (r == 0) & (pi > pcut)
+  return(mean(weight1 * c1 + weight0 * c0))
+}
+print(cost2(r, pi, pcut))
+#out of sample
+r <- test$Personal.Loan
+pi <- as.numeric(predict(model_tree, newdata = test, type = "prob")[, 2])
+pcut <- 0.5
+cost2 <- function(r, pi, pcut) {
+  weight1 <- 5
+  weight0 <- 1
+  c1 <- (r == 1) & (pi < pcut)
+  c0 <- (r == 0) & (pi > pcut)
+  return(mean(weight1 * c1 + weight0 * c0))
+}
+print(cost2(r, pi, pcut))
+
+#### RANDOM FOREST ####
+#Load necessary library
+library(randomForest)
+
+#Train the Random Forest model
+rf_model <- randomForest(Personal.Loan ~ ., data = train, ntree = 500, mtry = 3, importance = TRUE)
+
+#Print the model summary
+print(rf_model)
+
+#Predict on the test set
+predictions <- predict(rf_model, newdata = test)
+
+#in  sample Plot
+varImpPlot(rf_model) 
+
+# Out of sample
+#Test the Random Forest model
+rf_model2 <- randomForest(Personal.Loan ~ ., data = test, ntree = 500, mtry = 3, importance = TRUE)
+
+#Print the model summary
+print(rf_model2)
+
+#Predict on the test set
+predictions2 <- predict(rf_model2, newdata = test)
+
+#out of sample plot
+varImpPlot(rf_model2) 
+
+#misclassifact5ion rate at 
+misclas <- predict(rf_model,newdata = train, type="response")
+matrix <- table(train$Personal.Loan, (misclas > 0.2)*1, dnn=c("Truth","Predicted")) 
+matrix
+fp <- matrix[2, 1]  
+fn <- matrix[1, 2] 
+total <- sum(matrix)
+misclassification_rate <- (fp + fn) / total
+print(misclassification_rate)
+# Out of sample
+misclas2 <- predict(rf_model2, newdata = test, type="response")
+matrix2 <- table(test$Personal.Loan, (misclas2 > 0.2)*1, dnn=c("Truth","Predicted")) 
+matrix2
+fp <- matrix[2, 1]  
+fn <- matrix[1, 2] 
+total <- sum(matrix)
+misclassification_rate <- (fp + fn) / total
+print(misclassification_rate)
+
+# Asymmetric Cost Calculation
+r <- train$Personal.Loan
+pi <- as.numeric(predict(rf_model, newdata = train, type = "response")) - 1
+pcut <- 0.5
+cost2 <- function(r, pi, pcut) {
+  weight1 <- 5
+  weight0 <- 1
+  c1 <- (r == 1) & (pi < pcut)
+  c0 <- (r == 0) & (pi > pcut)
+  return(mean(weight1 * c1 + weight0 * c0))
+}
+print(cost2(r, pi, pcut))
+
+#out of sample
+r <- test$Personal.Loan
+pi <- as.numeric(predict(rf_model2, newdata = train, type = "response")) - 1
+pcut <- 0.5
+cost2 <- function(r, pi, pcut) {
+  weight1 <- 5
+  weight0 <- 1
+  c1 <- (r == 1) & (pi < pcut)
+  c0 <- (r == 0) & (pi > pcut)
+  return(mean(weight1 * c1 + weight0 * c0))
+}
+print(cost2(r, pi, pcut))
+
+#AUC/ROC
+pred_glm0_train<- predict(rf_model, type="response")
+library(ROCR)
+pred <- prediction(pred_glm0_train, train$Personal.Loan)
+perf <- performance(pred, "tpr", "fpr")
+plot(perf, colorize=TRUE, main = "In Sample Random Forest ROC Curve")
+unlist(slot(performance(pred, "auc"), "y.values"))
+#out of sample AUC
+pred_glm0_train<- predict(rf_model2, type="response")
+library(ROCR)
+pred <- prediction(pred_glm0_train, test$Personal.Loan)
+perf <- performance(pred, "tpr", "fpr")
+plot(perf, colorize=TRUE, main = "Out of Sample Random Forest ROC Curve")
+unlist(slot(performance(pred, "auc"), "y.values"))
+
+#### END ####
+                                           
