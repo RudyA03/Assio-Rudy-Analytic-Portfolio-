@@ -1,0 +1,169 @@
+CREATE TABLE cheese_production (
+    Year INTEGER,
+    Period TEXT,
+    Geo_Level TEXT,
+    State_ANSI INTEGER,
+    Commodity_ID INTEGER,
+    Domain TEXT,
+    Value INTEGER
+);
+
+
+CREATE TABLE honey_production (
+    Year INTEGER,
+    Geo_Level TEXT,
+    State_ANSI INTEGER,
+    Commodity_ID INTEGER,
+    Value INTEGER
+);
+
+
+CREATE TABLE milk_production (
+    Year INTEGER,
+    Period TEXT,
+    Geo_Level TEXT,
+    State_ANSI INTEGER,
+    Commodity_ID INTEGER,
+    Domain TEXT,
+    Value INTEGER
+);
+
+
+CREATE TABLE coffee_production (
+    Year INTEGER,
+    Period TEXT,
+    Geo_Level TEXT,
+    State_ANSI INTEGER,
+    Commodity_ID INTEGER,
+    Value INTEGER
+);
+
+
+CREATE TABLE egg_production (
+    Year INTEGER,
+    Period TEXT,
+    Geo_Level TEXT,
+    State_ANSI INTEGER,
+    Commodity_ID INTEGER,
+    Value INTEGER
+);
+
+
+CREATE TABLE state_lookup (
+    State TEXT,
+    State_ANSI INTEGER
+);
+
+
+CREATE TABLE yogurt_production (
+    Year INTEGER,
+    Period TEXT,
+    Geo_Level TEXT,
+    State_ANSI INTEGER,
+    Commodity_ID INTEGER,
+    Domain TEXT,
+    Value INTEGER
+);
+
+
+UPDATE cheese SET value = REPLACE(value, ',', '');
+
+UPDATE honey SET value = REPLACE(value, ',', '');
+
+UPDATE milk SET value = REPLACE(value, ',', '');
+
+UPDATE coffee SET value = REPLACE(value, ',', '');
+
+UPDATE egg SET value = REPLACE(value, ',', '');
+
+UPDATE yogurt SET value = REPLACE(value, ',', '');
+
+
+SELECT SUM(Value) FROM milk WHERE Year = 2023;
+
+SELECT * FROM coffee WHERE Year = 2015;
+
+SELECT AVG(Value) FROM honey WHERE Year = 2022;
+
+SELECT *
+from state;
+
+SELECT MAX(VALUE) AS highest_value
+FROM yogurt
+WHERE year = 2022;
+
+
+SELECT State_ANSI
+FROM state
+WHERE State_ANSI = (
+    SELECT cheese.state_ANSI
+    FROM cheese
+    JOIN Honey ON cheese.value = Honey.value
+    WHERE cheese.year = 2022
+);
+
+
+SELECT SUM(y.Value)
+FROM yogurt y
+WHERE y.Year = 2022 AND y.State_ANSI IN (
+    SELECT DISTINCT c.State_ANSI FROM cheese c WHERE c.Year = 2022
+);
+
+
+SELECT state_ANSI
+FROM state
+WHERE state_ANSI IN (
+    SELECT cheese.state_ANSI
+    FROM cheese
+    JOIN state ON cheese.state_ANSI = state.state_ANSI
+    WHERE cheese.value >= 100000 AND cheese.Year = 2023 AND cheese.Period = 'April'
+);
+
+SELECT SUM(Value) FROM coffee WHERE Year = 2011;
+               
+                   
+select *
+from state; 
+
+SELECT SUM(cheese.Value) AS total_cheese_production
+FROM cheese
+JOIN state ON cheese.state_ANSI = state.state_ANSI
+WHERE state.State = 'New Jersey' 
+  AND cheese.Year = 2023
+  AND cheese.Period = '04';
+ 
+ 
+ SELECT SUM(yogurt.Value) AS total_yogurt_production
+FROM yogurt
+JOIN cheese ON yogurt.state_ANSI = cheese.state_ANSI
+WHERE yogurt.Year = 2022
+  AND cheese.Year = 2023;
+
+ SELECT count(state.State)
+FROM state
+LEFT JOIN milk 
+  ON state.State_ANSI = milk.State_ANSI 
+    AND milk.Year = 2023
+WHERE milk.State_ANSI IS NULL;
+
+SELECT SUM(cheese.Value) AS delaware_cheese_production
+FROM cheese AS cheese
+JOIN state AS state
+    ON cheese.State_ANSI = state.State_ANSI
+WHERE state.State = 'Delaware'
+  AND cheese.Year = 2023
+  AND cheese.Period = '04';
+
+SELECT SUM(y.value) AS total_yogurt_production
+FROM yogurt AS y
+WHERE y.year = 2022
+AND y.state_ansi IN (
+    SELECT DISTINCT c.state_ansi
+    FROM cheese AS c
+    WHERE c.year = 2023
+);
+
+SELECT AVG(c.value) AS average_coffee_production
+FROM coffee AS c
+JOIN honey AS h ON c.year = h.year
+WHERE h.value > 1000000;
