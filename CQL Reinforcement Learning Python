@@ -1,0 +1,128 @@
+import gym as gym
+import pandas as pd
+from gym import logger as gymlogger
+import torch
+import d3rlpy
+import torchvision
+from d3rlpy.dataset import MDPDataset
+import numpy as np
+from d3rlpy.algos import DiscreteCQLConfig
+
+transitions_df = pd.read_excel('/Users/rudy.assio/Downloads/ResearchRL.xlsx')
+term_reward_df = pd.read_excel('/Users/rudy.assio/Downloads/terminal_rewardRL.xlsx')
+lump_sum_df = pd.read_excel('/Users/rudy.assio/Downloads/lump_sumRL.xlsx')
+
+# 2. TERMINAL-REWARD LOOKUP  — KEEP structure; CHANGE column names if yours differ
+# Maps state value → terminal reward
+term_reward_lookup = dict(
+    zip(
+        term_reward_df['state'],            
+        term_reward_df['Terminal Reward']    
+    )
+)
+
+# 3. LUMP-SUM LOOKUP  — **KEEP** pattern; **CHANGE** column names if different
+#    Maps (age, stage_code) → lump_sum_reward
+lump_dict = {}
+for row in lump_sum_df.itertuples():
+    age = row.age                   
+    lump_dict[(age, 84)] = row.localized   
+    lump_dict[(age, 85)] = row.regional   
+    lump_dict[(age, 86)] = row.distant   
+
+# 4. BUILD EPISODES FROM WIDE FORMAT
+episodes = []
+max_steps = 10  
+
+#4.
+for row in transitions_df.itertuples():
+    pid = row.patient_id
+    obs_list, act_list, rew_list, term_list = [], [], [], []
+
+#4.
+for i in range(max_steps + 1):
+        # —— pull your step data —— 
+        state  = getattr(row, f'state{i}')   
+        action = getattr(row, f'action{i}')
+        reward = getattr(row, f'reward{i}')
+
+# —— stop if this step doesn’t exist —— 
+        if pd.isna(state) or pd.isna(action):
+            break
+
+# —— record the observation & action —— 
+        obs_list.append([state])          
+        act_list.append(int(action))
+     
+# —— terminal logic ——
+# 1) lumpsum states  now ends horizon on states 84/85/86
+        if int(state) in (84, 85, 86):
+            age = 50 + i  # if State0 = age 50
+            lump_reward = lump_dict[(age, int(state))]
+            rew_list.append(lump_reward)
+            term_list.append(True)
+            break
+
+# 2) death state  handle state 90 as terminal with zero reward
+        if int(state) == 90:
+            rew_list.append(0.0)
+            term_list.append(True)
+            break
+
+# 3) final step reached  moved term_reward_lookup here
+        if i == max_steps:
+            terminal_reward = term_reward_lookup[int(state)]
+            rew_list.append(terminal_reward)
+            term_list.append(True)
+            break
+
+ # 4) otherwise: normal, intermediate reward always append raw reward
+        rew_list.append(reward)
+        term_list.append(False)
+
+        episodes.append({
+        'observations': np.array(obs_list, dtype=float),
+        'actions':      np.array(act_list, dtype=int),
+        'rewards':      np.array(rew_list, dtype=float),
+        'terminals':    np.array(term_list, dtype=bool)
+    })   
+
+# 5. CREATE THE MDP DATASET
+#    Flatten your list‐of‐dicts into four big arrays:
+all_obs  = np.concatenate([ep['observations'] for ep in episodes], axis=0)
+all_acts = np.concatenate([ep['actions']      for ep in episodes], axis=0)
+all_rews = np.concatenate([ep['rewards']      for ep in episodes], axis=0)
+all_terms= np.concatenate([ep['terminals']    for ep in episodes], axis=0)
+
+dataset = MDPDataset(
+    all_obs,
+    all_acts,
+    all_rews,
+    all_terms
+)
+dataset = MDPDataset(all_obs, all_acts, all_rews, all_terms)
+
+# 6. CONFIGURE & TRAIN CQL
+config = DiscreteCQLConfig(
+    batch_size=256,
+    gamma=0.99,
+    learning_rate=1e-3,
+    n_critics=2,
+    target_update_interval=1,
+    alpha=1.0
+)
+
+# decide on total steps and steps per “epoch”
+total_steps     = 50000
+steps_per_epoch = total_steps // 75
+
+# call fit 
+cql.fit(
+    dataset,              
+    n_steps=total_steps,  
+    n_steps_per_epoch=steps_per_epoch
+)
+
+# 7. SAVE THE TRAINED MODEL
+# this will create files like `cql_model.pth` (weights) and a JSON config
+cql.save_model('cql_model')
